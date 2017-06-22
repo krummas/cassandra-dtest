@@ -1,4 +1,6 @@
 import os
+import re
+import subprocess
 import tempfile
 import pytest
 import logging
@@ -12,10 +14,12 @@ from shutil import rmtree
 from cassandra import ConsistencyLevel, ReadTimeout, Unavailable
 from cassandra.query import SimpleStatement
 from ccmlib.node import Node
+from ccmlib import common
 
 from dtest import Tester
 from tools.assertions import assert_bootstrap_state, assert_all, assert_not_running
 from tools.data import rows_to_list
+from tools.misc import new_node
 
 since = pytest.mark.since
 logger = logging.getLogger(__name__)
@@ -592,6 +596,136 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         assert not self.replacement_node.grep_log("Unable to find sufficient sources for streaming range")
 
         self._verify_data(initial_data, table=table_name, cl=ConsistencyLevel.LOCAL_ONE)
+
+    def test_consistencylevel_replace(self):
+        cluster = self.cluster
+        cluster.populate(3)
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
+                                                  'bootstrap_consistency_level': {'keyspace1':'LOCAL_QUORUM'} })
+
+        cluster.set_batch_commitlog(enabled=True)
+        cluster.start(wait_for_binary_proto=True)
+        node1, node2, node3 = cluster.nodelist()
+        node3.stop(wait_other_notice=True)
+        node1.stress(['write', 'n=1k', 'no-warmup', 'cl=QUORUM', '-schema',
+                      'replication(factor=3)', '-rate', 'threads=10', '-pop', 'seq=1..1000'])
+        node3.start(wait_other_notice=True)
+        node2.stop(wait_other_notice=True)
+        node1.stress(['write', 'n=1k', 'no-warmup', 'cl=QUORUM', '-pop', 'seq=1001..2000'])
+        node2.start(wait_other_notice=True)
+        node1.stop(wait_other_notice=True)
+        node3.stress(['write', 'n=1k', 'no-warmup', 'cl=QUORUM', '-pop', 'seq=2001..3000'])
+        node1.start(wait_other_notice=True)
+        session = self.patient_exclusive_cql_connection(node1)
+        session.execute("""ALTER KEYSPACE system_auth
+                           WITH replication = {'class':'SimpleStrategy',
+                           'replication_factor':2};""")
+
+        node3.stop(wait_other_notice=True)
+        node4 = new_node(cluster)
+        extra_jvm_args = ["-Dcassandra.replace_address_first_boot=127.0.0.3",
+                          "-Dcassandra.ring_delay_ms=10000",
+                          "-Dcassandra.broadcast_interval_ms=10000"]
+        node4.start(jvm_args=extra_jvm_args, wait_for_binary_proto=True)
+        node1.stop(wait_other_notice=True)
+        node2.stop(wait_other_notice=True)
+        # only node4 is up, if we manage to read all keys, we know we are good
+        node4.stress(['read', 'n=3k', 'no-warmup', '-pop', 'seq=1..3000'])
+
+    def test_consistencylevel_replace_not_enough_replicas(self):
+        cluster = self.cluster
+        cluster.populate(3)
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
+                                                  'bootstrap_consistency_level': {'keyspace1':'QUORUM'} })
+
+        cluster.set_batch_commitlog(enabled=True)
+        cluster.start(wait_for_binary_proto=True)
+        node1, node2, node3 = cluster.nodelist()
+        node1.stress(['write', 'n=1k', 'no-warmup', 'cl=QUORUM', '-schema',
+                      'replication(factor=3)', '-rate', 'threads=10', '-pop', 'seq=1..1000'])
+        session = self.patient_exclusive_cql_connection(node1)
+        session.execute("""ALTER KEYSPACE system_auth
+                           WITH replication = {'class':'SimpleStrategy',
+                           'replication_factor':2};""")
+
+        node3.stop(wait_other_notice=True)
+        node2.stop(wait_other_notice=True)
+        node4 = new_node(cluster)
+        extra_jvm_args = ["-Dcassandra.replace_address_first_boot=127.0.0.3",
+                          "-Dcassandra.ring_delay_ms=10000",
+                          "-Dcassandra.broadcast_interval_ms=10000"]
+        self.ignore_log_patterns = list(self.ignore_log_patterns) + [r'Could not achieve', r'Exception encountered', r'Caught an exception while draining']
+        node4.start(jvm_args=extra_jvm_args, wait_other_notice=True)
+        node4.watch_log_for('Could not achieve')
+
+    def test_consistencylevel_streaming(self):
+        cluster = self.cluster
+        cluster.populate(3)
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
+                                                  'bootstrap_consistency_level': {'test_cl_stream':'QUORUM'} })
+
+        cluster.set_batch_commitlog(enabled=True)
+        cluster.start(wait_for_binary_proto=True)
+        node1, node2, node3 = cluster.nodelist()
+        logger.debug("getting cql connection")
+        session = self.patient_exclusive_cql_connection(node1)
+        logger.debug("altering system_auth to be able to bootstrap")
+        session.execute("""ALTER KEYSPACE system_auth
+                           WITH replication = {'class':'SimpleStrategy',
+                           'replication_factor':2};""")
+        session.execute("CREATE KEYSPACE test_cl_stream WITH replication = {'class': 'SimpleStrategy', 'replication_factor':3}")
+        session.execute("USE test_cl_stream")
+        session.execute("CREATE TABLE simpl (id int primary key, t text)")
+        session.execute(SimpleStatement("INSERT INTO simpl (id, t) VALUES (1, 'test1')", consistency_level=ConsistencyLevel.ALL))
+        node1.repair()
+        node3.stop(wait_other_notice=True)
+        session.execute(SimpleStatement("INSERT INTO simpl (id, t) VALUES (2, 'test2')", consistency_level=ConsistencyLevel.QUORUM))
+        cluster.flush()
+        node3.start(wait_other_notice=True)
+        node2.stop(wait_other_notice=True)
+        session.execute(SimpleStatement("INSERT INTO simpl (id, t) VALUES (3, 'test3')", consistency_level=ConsistencyLevel.QUORUM))
+        cluster.flush()
+        node2.start(wait_other_notice=True)
+        # find node2 and node3 repaired sstables
+        node2_repaired = self._get_sstable_repaired_map(node2, 'test_cl_stream', 'simpl')
+        node3_repaired = self._get_sstable_repaired_map(node3, 'test_cl_stream', 'simpl')
+
+        node1.stop(wait_other_notice=True)
+        node4 = new_node(cluster)
+        extra_jvm_args = ["-Dcassandra.replace_address_first_boot=127.0.0.1",
+                          "-Dcassandra.ring_delay_ms=10000",
+                          "-Dcassandra.broadcast_interval_ms=10000"]
+        node4.start(jvm_args=extra_jvm_args, wait_for_binary_proto=True)
+        found_repaired_node2 = False
+        found_repaired_node3 = False
+        for sstable in node2_repaired:
+            loglines = node2.grep_log("Adding sstable.*%s" % sstable, filename='debug.log')
+            # all unrepaired data should be streamed:
+            if not node2_repaired[sstable]:
+                assert len(loglines) > 0
+            else:
+                if loglines:
+                    found_repaired_node2 = True
+        for sstable in node3_repaired:
+            loglines = node3.grep_log("Adding sstable.*%s" % sstable, filename='debug.log')
+            # all unrepaired data should be streamed:
+            if not node3_repaired[sstable]:
+                assert len(loglines) > 0
+            else:
+                if loglines:
+                    found_repaired_node3 = True
+        # we either stream the repaired data from node2 or node3, not both:
+        assert found_repaired_node2 ^ found_repaired_node3
+
+    def _get_sstable_repaired_map(self, node, ks, cf):
+        sstables = node.get_sstables(ks, cf)
+        sstablemap = {}
+        for s in sstables:
+            cmd = common.join_bin(node.get_install_dir(), os.path.join('tools', 'bin'), 'sstablemetadata')
+            out, err = subprocess.Popen([cmd, s], stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=node.get_env()).communicate()
+            m = re.search(r'Repaired at: (\d+)', out.decode("utf-8"))
+            sstablemap[s] = int(m.group(1)) > 0
+        return sstablemap
 
     def _cleanup(self, node):
         commitlog_dir = os.path.join(node.get_path(), 'commitlogs')

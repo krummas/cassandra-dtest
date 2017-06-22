@@ -10,6 +10,7 @@ import signal
 
 from cassandra import ConsistencyLevel
 from cassandra.concurrent import execute_concurrent_with_args
+from cassandra.query import SimpleStatement
 from ccmlib.node import NodeError
 
 import pytest
@@ -682,6 +683,60 @@ class TestBootstrap(Tester):
         event.set()
         thread.join()
         assert not failed.is_set()
+
+    def test_consistent_bootstrap(self):
+        cluster = self.cluster
+        cluster.populate(3)
+        cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
+                                                  'bootstrap_consistency_level': {'test_cl_bootstrap':'ALL'} })
+        cluster.set_batch_commitlog(enabled=True)
+        cluster.start(wait_for_binary_proto=True)
+        node1, node2, node3 = cluster.nodelist()
+        logger.debug("getting cql connection")
+        session = self.patient_exclusive_cql_connection(node1)
+        logger.debug("altering system_auth to be able to bootstrap")
+        session.execute("""ALTER KEYSPACE system_auth
+                           WITH replication = {'class':'SimpleStrategy',
+                           'replication_factor':2};""")
+        session.execute("CREATE KEYSPACE test_cl_bootstrap WITH replication = {'class': 'SimpleStrategy', 'replication_factor':3}")
+        session.execute("USE test_cl_bootstrap")
+        session.execute("CREATE TABLE simple (id int primary key, t text)")
+        # insert one row which should be repaired and everywhere
+        session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (1, 'test1')", consistency_level=ConsistencyLevel.ALL))
+        node1.repair()
+
+        # write a row which only ends up on node1:
+        node2.stop(wait_other_notice=True)
+        node3.stop(wait_other_notice=True)
+        session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (2, 'test2')", consistency_level=ConsistencyLevel.ONE))
+
+        # write a row to node2:
+        node2.start(wait_other_notice=True)
+        node1.stop(wait_other_notice=True)
+        session = self.patient_exclusive_cql_connection(node2)
+        session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (3, 'test3')", consistency_level=ConsistencyLevel.ONE))
+
+        # and node3:
+        node3.start(wait_other_notice=True)
+        node2.stop(wait_other_notice=True)
+        session = self.patient_exclusive_cql_connection(node3)
+        session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (4, 'test4')", consistency_level=ConsistencyLevel.ONE))
+        cluster.flush()
+
+        node1.start(wait_other_notice=True)
+        node2.start(wait_other_notice=True)
+
+        node4 = new_node(cluster)
+        node4.set_configuration_options(values={'initial_token': '-1393282050773293278'})
+        node4.start(wait_for_binary_proto=True, wait_other_notice=True)
+
+        node1.stop(wait_other_notice=True)
+        node2.stop(wait_other_notice=True)
+        node3.stop(wait_other_notice=True)
+
+        session = self.patient_cql_connection(node4)
+        for x in [1, 2, 3, 4]:
+            assert len(list(session.execute(SimpleStatement("SELECT * FROM test_cl_bootstrap.simple WHERE id=%d"%x, consistency_level=ConsistencyLevel.ONE)))) > 0
 
     def _monitor_datadir(self, node, event, basecount, jobs, failed):
         while True:
