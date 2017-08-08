@@ -1,5 +1,6 @@
 import os
 import tempfile
+import threading
 from itertools import chain
 from shutil import rmtree
 from unittest import skipIf
@@ -13,6 +14,7 @@ from dtest import CASSANDRA_VERSION_FROM_BUILD, DISABLE_VNODES, Tester, debug
 from tools.assertions import assert_bootstrap_state, assert_all, assert_not_running
 from tools.data import rows_to_list
 from tools.decorators import since
+from tools.misc import new_node
 
 
 class NodeUnavailable(Exception):
@@ -342,6 +344,35 @@ class TestReplaceAddress(BaseReplaceAddressTest):
             node3.start(wait_other_notice=False)
             node3.watch_log_for('Use cassandra.replace_address if you want to replace this node', from_mark=mark, timeout=20)
             mark = node3.mark_log()
+
+    def replace_same_fail_test(self):
+        self.ignore_log_patterns = list(self.ignore_log_patterns) + [r'Exception encountered during startup', r'StorageServiceShutdownHook']
+        self._setup(n=3)
+        self._insert_data()
+        node1, node2, node3 = self.cluster.nodelist()
+        node3.stop(gently=False)
+        for d in chain([os.path.join(node3.get_path(), "commitlogs")],
+                       [os.path.join(node3.get_path(), "saved_caches")],
+                       node3.data_directories()):
+            if os.path.exists(d):
+                rmtree(d)
+                os.mkdir(d)
+        node3.byteman_port = '8100'
+        node3.import_config_files()
+        node3.set_configuration_options(values={'auto_bootstrap': True})
+        mark = node3.mark_log()
+        # start in a separate thread to be able to install byteman rule during startup
+        t = threading.Thread(target=node3.start, kwargs={'jvm_args':["-Dcassandra.replace_address_first_boot=127.0.0.3"], 'wait_other_notice':False})
+        t.start()
+        node3.watch_log_for("JOINING", from_mark=mark)
+        node3.byteman_submit(['./byteman/bootstrap_failure.btm'])
+        debug("wait for startup")
+        t.join()
+        debug("done waiting for startup")
+        node3.watch_log_for("Exception in thread")
+        node4 = new_node(self.cluster)
+        debug("starting node4")
+        node4.start(jvm_args=["-Dcassandra.replace_address_first_boot=127.0.0.3"], wait_other_notice=True)
 
     @since('3.6')
     def unsafe_replace_test(self):
