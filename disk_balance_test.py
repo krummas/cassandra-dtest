@@ -16,6 +16,9 @@ class TestDiskBalance(Tester):
     @jira_ticket CASSANDRA-6696
     """
 
+    def watch_for_boundary_cache_refresh(self, node, kscf="keyspace1.standard1"):
+        node.watch_log_for('Refreshing disk boundary cache for %s' % kscf, filename='debug.log')
+
     def disk_balance_stress_test(self):
         cluster = self.cluster
         if not DISABLE_VNODES:
@@ -40,9 +43,16 @@ class TestDiskBalance(Tester):
 
         node1.stress(['write', 'n=50k', 'no-warmup', '-rate', 'threads=100', '-schema', 'replication(factor=3)', 'compaction(strategy=SizeTieredCompactionStrategy,enabled=false)'])
         cluster.flush()
+        for node in cluster.nodelist():
+            self.watch_for_boundary_cache_refresh(node)
+
         node5 = new_node(cluster)
         node5.start(wait_for_binary_proto=True)
         self.assert_balanced(node5)
+        node1.stress(['write', 'n=100', 'no-warmup', '-rate', 'threads=100', '-schema', 'replication(factor=3)', 'compaction(strategy=SizeTieredCompactionStrategy,enabled=false)'])
+        cluster.flush()
+        for node in cluster.nodelist():
+            self.watch_for_boundary_cache_refresh(node)
 
     def disk_balance_decommission_test(self):
         cluster = self.cluster
@@ -53,7 +63,8 @@ class TestDiskBalance(Tester):
         node4 = cluster.nodes['node4']
         node1.stress(['write', 'n=50k', 'no-warmup', '-rate', 'threads=100', '-schema', 'replication(factor=2)', 'compaction(strategy=SizeTieredCompactionStrategy,enabled=false)'])
         cluster.flush()
-
+        for node in cluster.nodelist():
+            self.watch_for_boundary_cache_refresh(node)
         node4.decommission()
 
         for node in cluster.nodelist():
@@ -61,6 +72,11 @@ class TestDiskBalance(Tester):
 
         for node in cluster.nodelist():
             self.assert_balanced(node)
+        node1.stress(['write', 'n=100', 'no-warmup', '-rate', 'threads=100', '-schema', 'replication(factor=3)', 'compaction(strategy=SizeTieredCompactionStrategy,enabled=false)'])
+        cluster.flush()
+        for node in cluster.nodelist():
+            self.watch_for_boundary_cache_refresh(node)
+
 
     def blacklisted_directory_test(self):
         cluster = self.cluster
@@ -75,6 +91,7 @@ class TestDiskBalance(Tester):
         create_c1c2_table(self, session)
         insert_c1c2(session, n=10000)
         node.flush()
+        self.watch_for_boundary_cache_refresh(node, kscf='ks.cf')
         for k in xrange(0, 10000):
             query_c1c2(session, k)
 
@@ -90,6 +107,10 @@ class TestDiskBalance(Tester):
 
         for k in xrange(0, 10000):
             query_c1c2(session, k)
+        insert_c1c2(session, n=100)
+        node.flush()
+        self.watch_for_boundary_cache_refresh(node, kscf='ks.cf')
+
 
     def alter_replication_factor_test(self):
         cluster = self.cluster
@@ -97,12 +118,16 @@ class TestDiskBalance(Tester):
             cluster.set_configuration_options(values={'num_tokens': 256})
         cluster.populate(3).start(wait_for_binary_proto=True)
         node1 = cluster.nodes['node1']
-        node1.stress(['write', 'n=1', 'no-warmup', '-rate', 'threads=100', '-schema', 'replication(factor=1)'])
+        node1.stress(['write', 'n=100', 'no-warmup', '-rate', 'threads=100', '-schema', 'replication(factor=1)'])
         cluster.flush()
+        for node in cluster.nodelist():
+            self.watch_for_boundary_cache_refresh(node)
         session = self.patient_cql_connection(node1)
         session.execute("ALTER KEYSPACE keyspace1 WITH replication = {'class':'SimpleStrategy', 'replication_factor':2}")
         node1.stress(['write', 'n=100k', 'no-warmup', '-rate', 'threads=100'])
         cluster.flush()
+        for node in cluster.nodelist():
+            self.watch_for_boundary_cache_refresh(node)
         for node in cluster.nodelist():
             self.assert_balanced(node)
 
