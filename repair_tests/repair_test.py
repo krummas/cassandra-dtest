@@ -1151,7 +1151,8 @@ class TestRepair(BaseRepairTest):
             "Stream failed",
             "Session completed with the following error",
             "Repair session .* for range .* failed with error",
-            "Sync failed between .* and .*"
+            "Sync failed between .* and .*",
+            "failed to send a stream message"
         ]
 
         # Disable hinted handoff and set batch commit log so this doesn't
