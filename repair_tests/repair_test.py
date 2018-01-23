@@ -72,8 +72,10 @@ class BaseRepairTest(Tester):
                 node.stop(wait_other_notice=True)
 
         session = self.patient_exclusive_cql_connection(node_to_check, 'ks')
-        result = list(session.execute("SELECT * FROM cf LIMIT {}".format(rows * 2), timeout=10))
-        assert len(result) == rows
+
+        query = SimpleStatement("SELECT * FROM cf LIMIT {}".format(rows * 2), fetch_size=1000)
+        result = list(session.execute(query, timeout=30))
+        self.assertEqual(len(result), rows)
 
         for k in found:
             query_c1c2(session, k, ConsistencyLevel.ONE)
