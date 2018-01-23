@@ -125,8 +125,8 @@ class BaseReplaceAddressTest(Tester):
     def _fetch_initial_data(self, table='keyspace1.standard1', cl=ConsistencyLevel.THREE, limit=10000):
         debug("Fetching initial data from {} on {} with CL={} and LIMIT={}".format(table, self.query_node.name, cl, limit))
         session = self.patient_cql_connection(self.query_node)
-        query = SimpleStatement('select * from {} LIMIT {}'.format(table, limit), consistency_level=cl)
-        return rows_to_list(session.execute(query))
+        query = SimpleStatement('select * from {} LIMIT {}'.format(table, limit), consistency_level=cl, fetch_size=1000)
+        return rows_to_list(session.execute(query, timeout=30))
 
     def _verify_data(self, initial_data, table='keyspace1.standard1', cl=ConsistencyLevel.ONE, limit=10000,
                      restart_nodes=False):
