@@ -33,8 +33,6 @@ class TestOfflineTools(Tester):
         @since 2.1.5
         @jira_ticket CASSANDRA-7614
         """
-        print("XYZXYZXYZ")
-        print(os.environ)
         cluster = self.cluster
         cluster.populate(1).start(wait_for_binary_proto=True)
         node1 = cluster.nodelist()[0]
