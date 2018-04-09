@@ -685,12 +685,19 @@ class TestBootstrap(Tester):
         assert not failed.is_set()
 
     def test_consistent_bootstrap(self):
+        """
+        Makes sure that a newly bootstrapped node using consistent bootstrap (with ALL) gets all the rows
+
+        It writes one row to all original nodes, repairs, then writes a single row to each of the other nodes (with the others
+        down and without hints), then starts all nodes, bootstraps and verifies that the new node got the unrepaired data from
+        ALL nodes
+        """
         cluster = self.cluster
         cluster.populate(3)
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
-                                                  'bootstrap_consistency_level': {'test_cl_bootstrap':'ALL'} })
+                                                  'default_bootstrap_consistency_level': 'ALL' })
         cluster.set_batch_commitlog(enabled=True)
-        cluster.start(wait_for_binary_proto=True)
+        cluster.start(wait_for_binary_proto=True, wait_other_notice=True)
         node1, node2, node3 = cluster.nodelist()
         logger.debug("getting cql connection")
         session = self.patient_exclusive_cql_connection(node1)
@@ -728,7 +735,7 @@ class TestBootstrap(Tester):
 
         node4 = new_node(cluster)
         node4.set_configuration_options(values={'initial_token': '-1393282050773293278'})
-        node4.start(wait_for_binary_proto=True, wait_other_notice=True)
+        node4.start(wait_for_binary_proto=True, wait_other_notice=True, jvm_args=["-Dcassandra.consistent.rangemovement=false"])
 
         node1.stop(wait_other_notice=True)
         node2.stop(wait_other_notice=True)

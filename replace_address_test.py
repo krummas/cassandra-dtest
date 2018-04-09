@@ -601,7 +601,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         cluster = self.cluster
         cluster.populate(3)
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
-                                                  'bootstrap_consistency_level': {'keyspace1':'LOCAL_QUORUM'} })
+                                                  'bootstrap_consistency_level': {'keyspace1':'QUORUM'} })
 
         cluster.set_batch_commitlog(enabled=True)
         cluster.start(wait_for_binary_proto=True)
@@ -654,7 +654,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         extra_jvm_args = ["-Dcassandra.replace_address_first_boot=127.0.0.3",
                           "-Dcassandra.ring_delay_ms=10000",
                           "-Dcassandra.broadcast_interval_ms=10000"]
-        self.ignore_log_patterns = list(self.ignore_log_patterns) + [r'Could not achieve', r'Exception encountered', r'Caught an exception while draining']
+        self.fixture_dtest_setup.ignore_log_patterns = [r'Could not achieve']
         node4.start(jvm_args=extra_jvm_args, wait_other_notice=True)
         node4.watch_log_for('Could not achieve')
 
@@ -687,8 +687,8 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         cluster.flush()
         node2.start(wait_other_notice=True)
         # find node2 and node3 repaired sstables
-        node2_repaired = self._get_sstable_repaired_map(node2, 'test_cl_stream', 'simpl')
-        node3_repaired = self._get_sstable_repaired_map(node3, 'test_cl_stream', 'simpl')
+        node2_sstables = self._get_sstable_repaired_map(node2, 'test_cl_stream', 'simpl')
+        node3_sstables = self._get_sstable_repaired_map(node3, 'test_cl_stream', 'simpl')
 
         node1.stop(wait_other_notice=True)
         node4 = new_node(cluster)
@@ -698,24 +698,30 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         node4.start(jvm_args=extra_jvm_args, wait_for_binary_proto=True)
         found_repaired_node2 = False
         found_repaired_node3 = False
-        for sstable in node2_repaired:
+        found_unrepaired = False
+        for sstable in node2_sstables:
             loglines = node2.grep_log("Adding sstable.*%s" % sstable, filename='debug.log')
             # all unrepaired data should be streamed:
-            if not node2_repaired[sstable]:
+            if not node2_sstables[sstable]:
+                found_unrepaired = True
                 assert len(loglines) > 0
             else:
                 if loglines:
                     found_repaired_node2 = True
-        for sstable in node3_repaired:
+        assert found_unrepaired
+        found_unrepaired = False
+        for sstable in node3_sstables:
             loglines = node3.grep_log("Adding sstable.*%s" % sstable, filename='debug.log')
             # all unrepaired data should be streamed:
-            if not node3_repaired[sstable]:
+            if not node3_sstables[sstable]:
                 assert len(loglines) > 0
+                found_unrepaired = True
             else:
                 if loglines:
                     found_repaired_node3 = True
         # we either stream the repaired data from node2 or node3, not both:
         assert found_repaired_node2 ^ found_repaired_node3
+        assert found_unrepaired
 
     def _get_sstable_repaired_map(self, node, ks, cf):
         sstables = node.get_sstables(ks, cf)
