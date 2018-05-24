@@ -97,17 +97,11 @@ class TestRefresh(Tester):
                 self.corrupt_file(os.path.join(dirs[1], f))
                 break
 
-        session = self.patient_cql_connection(node)
-        assert len(list(session.execute("select * from ks.a"))) == 0
+        self.verify_empty(node)
         err = self.run_import(node, 'ks', 'a', dirs)
         assert dirs[1] in err
 
-        res = session.execute("select * from ks.a")
-        assert len(list(res)) == 10
-        # verify that no data from the corrupt dir was imported:
-        for row in res:
-            id = int(row['id'])
-            assert (id >=0 and id < 10)
+        self.verify_import(node)
 
     def test_import_corrupt(self):
         self.fixture_dtest_setup.ignore_log_patterns = list(self.fixture_dtest_setup.ignore_log_patterns) + ['Failed verifying sstable']
@@ -158,6 +152,29 @@ class TestRefresh(Tester):
         assert len(os.listdir(dirs[0])) == 0
         assert len(os.listdir(dirs[2])) == 0
 
+    def test_nodetoolrefresh(self):
+        self.cluster.populate(1)
+        node = self.cluster.nodelist()[0]
+        node.start(wait_for_binary_proto=True)
+        self.prepare_ks(node)
+        node.stop()
+        for sstabledir in node.get_sstables_per_data_directory('ks', 'a'):
+            directory_to_copy = os.path.dirname(sstabledir[0])
+        dirs = self.copy_sstables(node, 'ks', 'a', True)
+        node.start(wait_for_binary_proto=True)
+
+        # move the sstables back:
+        for sstabledir in dirs:
+            for sstable in os.listdir(sstabledir):
+                src_file = os.path.join(sstabledir, sstable)
+                target_file = os.path.join(directory_to_copy, sstable)
+                shutil.move(src_file, target_file)
+
+        self.verify_empty(node)
+        node.nodetool('refresh ks a')
+        session = self.patient_cql_connection(node)
+        self.verify_import(node)
+
     def corrupt_file(self, f_to_corrupt):
         with open(f_to_corrupt, 'wb') as f:
             f.write(b"abc")
@@ -203,3 +220,16 @@ class TestRefresh(Tester):
             return e.stderr
         return None
 
+    def verify_import(self, node):
+        session = self.patient_cql_connection(node)
+        res = session.execute("select * from ks.a")
+        assert len(list(res)) == 10
+        # verify that no data from the corrupt dir was imported:
+        for row in res:
+            id = int(row['id'])
+            assert (id >=0 and id < 10)
+
+
+    def verify_empty(self, node):
+        session = self.patient_cql_connection(node)
+        assert len(list(session.execute("select * from ks.a"))) == 0
