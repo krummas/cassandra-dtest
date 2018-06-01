@@ -41,6 +41,7 @@ class TestRefresh(Tester):
                 pass # this is OK post-14310 - we just don't want to hang forever
             time.sleep(1)
 
+    @since('4.0')
     def test_import_many_directories(self):
         self.cluster.populate(1)
         node = self.cluster.nodelist()[0]
@@ -51,6 +52,7 @@ class TestRefresh(Tester):
         dirs.extend(self.copy_sstables(node, 'ks', 'a', False))
         self.run_import(node, 'ks', 'a', dirs)
 
+    @since('4.0')
     def test_verify_data_imported(self):
         self.cluster.populate(1)
         node = self.cluster.nodelist()[0]
@@ -75,6 +77,7 @@ class TestRefresh(Tester):
             id = int(row['id'])
             assert (id >=0 and id < 10) or (id >= 100 and id < 110)
 
+    @since('4.0')
     def test_verify_data_imported_corrupt(self):
         self.fixture_dtest_setup.ignore_log_patterns = list(self.fixture_dtest_setup.ignore_log_patterns) + ['Failed verifying sstable']
         self.cluster.populate(1)
@@ -103,6 +106,7 @@ class TestRefresh(Tester):
 
         self.verify_import(node)
 
+    @since('4.0')
     def test_import_corrupt(self):
         self.fixture_dtest_setup.ignore_log_patterns = list(self.fixture_dtest_setup.ignore_log_patterns) + ['Failed verifying sstable']
         self.cluster.populate(1)
@@ -127,6 +131,7 @@ class TestRefresh(Tester):
         assert len(os.listdir(dirs[0])) == 0
         assert len(os.listdir(dirs[2])) == 0
 
+    @since('4.0')
     def test_import_corrupt_noverify(self):
         self.fixture_dtest_setup.ignore_log_patterns = list(self.fixture_dtest_setup.ignore_log_patterns) + ['Failed verifying sstable', 'Failed importing sstables in directory']
         self.cluster.populate(1)
@@ -152,6 +157,7 @@ class TestRefresh(Tester):
         assert len(os.listdir(dirs[0])) == 0
         assert len(os.listdir(dirs[2])) == 0
 
+    @since('4.0')
     def test_nodetoolrefresh(self):
         self.cluster.populate(1)
         node = self.cluster.nodelist()[0]
