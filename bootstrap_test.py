@@ -695,7 +695,7 @@ class TestBootstrap(Tester):
         cluster = self.cluster
         cluster.populate(3)
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
-                                                  'default_bootstrap_consistency_level': 'ALL' })
+                                                  'default_consistent_bootstrap': 'all' })
         cluster.set_batch_commitlog(enabled=True)
         cluster.start(wait_for_binary_proto=True, wait_other_notice=True)
         node1, node2, node3 = cluster.nodelist()
@@ -735,6 +735,7 @@ class TestBootstrap(Tester):
 
         node4 = new_node(cluster)
         node4.set_configuration_options(values={'initial_token': '-1393282050773293278'})
+        # disable consistent rangemovement, otherwise we don't do consistent bootstrap
         node4.start(wait_for_binary_proto=True, wait_other_notice=True, jvm_args=["-Dcassandra.consistent.rangemovement=false"])
 
         node1.stop(wait_other_notice=True)

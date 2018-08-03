@@ -601,7 +601,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         cluster = self.cluster
         cluster.populate(3)
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
-                                                  'bootstrap_consistency_level': {'keyspace1':'QUORUM'} })
+                                                  'consistent_bootstrap': {'keyspace1':'global'} })
 
         cluster.set_batch_commitlog(enabled=True)
         cluster.start(wait_for_binary_proto=True)
@@ -636,7 +636,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         cluster = self.cluster
         cluster.populate(3)
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
-                                                  'bootstrap_consistency_level': {'keyspace1':'QUORUM'} })
+                                                  'consistent_bootstrap': {'keyspace1':'global'} })
 
         cluster.set_batch_commitlog(enabled=True)
         cluster.start(wait_for_binary_proto=True)
@@ -662,7 +662,7 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         cluster = self.cluster
         cluster.populate(3)
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False,
-                                                  'bootstrap_consistency_level': {'test_cl_stream':'QUORUM'} })
+                                                  'consistent_bootstrap': {'test_cl_stream':'global'} })
 
         cluster.set_batch_commitlog(enabled=True)
         cluster.start(wait_for_binary_proto=True)
