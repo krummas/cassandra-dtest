@@ -715,26 +715,28 @@ class TestBootstrap(Tester):
         # write a row which only ends up on node1:
         node2.stop(wait_other_notice=True)
         node3.stop(wait_other_notice=True)
-        session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (2, 'test2')", consistency_level=ConsistencyLevel.ONE))
+        for x in range(0, 20):
+            session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (%d, 'test2')"%x, consistency_level=ConsistencyLevel.ONE))
 
         # write a row to node2:
         node2.start(wait_other_notice=True)
         node1.stop(wait_other_notice=True)
         session = self.patient_exclusive_cql_connection(node2)
-        session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (3, 'test3')", consistency_level=ConsistencyLevel.ONE))
+        for x in range(20, 40):
+            session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (%d, 'test3')"%x, consistency_level=ConsistencyLevel.ONE))
 
         # and node3:
         node3.start(wait_other_notice=True)
         node2.stop(wait_other_notice=True)
         session = self.patient_exclusive_cql_connection(node3)
-        session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (4, 'test4')", consistency_level=ConsistencyLevel.ONE))
+        for x in range(40, 60):
+            session.execute(SimpleStatement("INSERT INTO test_cl_bootstrap.simple (id, t) VALUES (%d, 'test4')"%x, consistency_level=ConsistencyLevel.ONE))
         cluster.flush()
 
         node1.start(wait_other_notice=True)
         node2.start(wait_other_notice=True)
 
         node4 = new_node(cluster)
-        node4.set_configuration_options(values={'initial_token': '-1393282050773293278'})
         # disable consistent rangemovement, otherwise we don't do consistent bootstrap
         node4.start(wait_for_binary_proto=True, wait_other_notice=True, jvm_args=["-Dcassandra.consistent.rangemovement=false"])
 
@@ -743,8 +745,17 @@ class TestBootstrap(Tester):
         node3.stop(wait_other_notice=True)
 
         session = self.patient_cql_connection(node4)
-        for x in [1, 2, 3, 4]:
-            assert len(list(session.execute(SimpleStatement("SELECT * FROM test_cl_bootstrap.simple WHERE id=%d"%x, consistency_level=ConsistencyLevel.ONE)))) > 0
+
+        # make sure node4 has all the rows it should:
+        for x in range(0, 60):
+            endpoints = self._get_endpoints_for_key(node4, "test_cl_bootstrap", "simple", x)
+            if node4.address() in endpoints:
+                assert len(list(session.execute(SimpleStatement("SELECT * FROM test_cl_bootstrap.simple WHERE id=%d"%x, consistency_level=ConsistencyLevel.ONE)))) > 0
+
+
+    def _get_endpoints_for_key(self, node, ks, table, key):
+        output, _, _ = node.nodetool("getendpoints %s %s %s" % (ks, table, key))
+        return output.split("\n")
 
     def _monitor_datadir(self, node, event, basecount, jobs, failed):
         while True:

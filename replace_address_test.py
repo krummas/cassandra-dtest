@@ -651,10 +651,10 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         node3.stop(wait_other_notice=True)
         node2.stop(wait_other_notice=True)
         node4 = new_node(cluster)
-        extra_jvm_args = ["-Dcassandra.replace_address_first_boot=127.0.0.3",
+        extra_jvm_args = ["-Dcassandra.replace_address_first_boot=%s"%node3.address(),
                           "-Dcassandra.ring_delay_ms=10000",
                           "-Dcassandra.broadcast_interval_ms=10000"]
-        self.fixture_dtest_setup.ignore_log_patterns = [r'Could not achieve']
+        self.fixture_dtest_setup.ignore_log_patterns = list(self.fixture_dtest_setup.ignore_log_patterns) + [r'Could not achieve']
         node4.start(jvm_args=extra_jvm_args, wait_other_notice=True)
         node4.watch_log_for('Could not achieve')
 
