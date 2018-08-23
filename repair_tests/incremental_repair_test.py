@@ -918,3 +918,36 @@ class TestIncRepair(Tester):
         self.assertRepairedAndUnrepaired(node1, 'ks')
         self.assertRepairedAndUnrepaired(node2, 'ks')
         self.assertRepairedAndUnrepaired(node3, 'ks')
+
+    @since('4.0')
+    def test_14145(self):
+        self.fixture_dtest_setup.setup_overrides.cluster_options = ImmutableMapping({'hinted_handoff_enabled': 'false',
+                                                                                     'num_tokens': 1,
+                                                                                     'commitlog_sync_period_in_ms': 500,
+                                                                                     'partitioner': 'org.apache.cassandra.dht.Murmur3Partitioner'})
+        self.cluster.populate(2).start()
+        node1, node2 = self.cluster.nodelist()
+
+        session = self.patient_exclusive_cql_connection(node1)
+        session.execute("CREATE KEYSPACE ks WITH REPLICATION={'class':'SimpleStrategy', 'replication_factor': 2}")
+        session.execute("CREATE TABLE ks.tbl (k INT PRIMARY KEY, v INT)")
+        stmt = SimpleStatement("INSERT INTO ks.tbl (k,v) VALUES (%s, %s)")
+        stmt.consistency_level = ConsistencyLevel.ALL
+        for i in range(10):
+            session.execute(stmt, (i, i))
+
+        for node in self.cluster.nodelist():
+            node.flush()
+            self.assertNoRepairedSSTables(node, 'ks')
+
+        node1.repair(options=['ks'])
+        node2.stop(wait_other_notice=True)
+
+        session.execute("delete from ks.tbl where k = 5")
+
+        node1.flush()
+        node2.start(wait_other_notice=True)
+        stmt = SimpleStatement("select * from ks.tbl where k = 5")
+        stmt.consistency_level = ConsistencyLevel.ALL
+        session.execute(stmt)
+        assert len(node1.grep_log("Detected mismatch between repaired datasets")) == 0 and len(node2.grep_log("Detected mismatch between repaired datasets")) == 0
