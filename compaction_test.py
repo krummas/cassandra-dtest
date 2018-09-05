@@ -7,6 +7,7 @@ import time
 from distutils.version import LooseVersion
 import pytest
 import parse
+import threading
 import logging
 
 from dtest import Tester, create_ks
@@ -516,6 +517,54 @@ class TestCompaction(Tester):
         sstable_files = node1.get_sstable_data_files('keyspace1', 'standard1')
         assert len(node1.data_directories()) == len(sstable_files), \
             'Expected one sstable data file per node directory but got {}'.format(sstable_files)
+
+    @pytest.mark.parametrize("strategy", strategies)
+    def test_error_upgradesstables(self, strategy):
+        """
+        1. Start upgradesstables, slowed down to 1s per partition appended, 8 parallel upgrades
+        2. Stop one of the upgrade compactions, ignore the CompactionInterruptedException which is expected
+        3. Run a major compaction to make sure that no sstables are marked compacting etc
+        """
+        self.fixture_dtest_setup.ignore_log_patterns = list(self.fixture_dtest_setup.ignore_log_patterns) + [
+            r'CompactionInterruptedException']
+        self.fixture_dtest_setup.init_default_config()
+        cluster = self.cluster
+        cluster.set_configuration_options({'concurrent_compactors': 8})
+
+        cluster.populate(1)
+        node1 = cluster.nodelist()[0]
+        logger.debug("Setting up byteman on {}".format(node1.name))
+        # set up byteman
+        node1.byteman_port = '8100'
+        node1.import_config_files()
+        cluster.start(wait_for_binary_proto=True)
+
+        for x in range(0, 8):
+            node1.stress(['write', 'n=25', "no-warmup", "cl=ONE", "-rate",
+                          "threads=300", "-schema", "replication(factor=1)",
+                          "compaction(strategy={},enabled=false)".format(strategy)])
+            node1.flush()
+        logger.debug("Submitting byteman script to {}".format(node1.name))
+        node1.byteman_submit(['./byteman/compaction_slow.btm'])
+
+        thread = threading.Thread(target=self._silent_upgradesstables, args=(node1,))
+        thread.start()
+        time.sleep(5)
+        output = node1.nodetool("compactionstats").stdout
+        uuid = ''
+        for l in output.splitlines():
+            if "Upgrade sstables" in l:
+                uuid = l.lstrip().split(" ")[0]
+        node1.nodetool("stop --compaction-id %s COMPACTION"%uuid)
+        thread.join()
+        time.sleep(25)
+        node1.nodetool("compact keyspace1 standard1")
+
+    def _silent_upgradesstables(self, node):
+        try:
+            node.nodetool("upgradesstables -j 8 -a keyspace1 standard1")
+        except:
+            pass
 
     @pytest.mark.parametrize("strategy", ['LeveledCompactionStrategy'])
     @since('3.10')

@@ -1,0 +1,12 @@
+#
+# Sleep 60s during streaming session
+#
+RULE sleep 1s on each compaction append
+CLASS org.apache.cassandra.db.compaction.writers.CompactionAwareWriter
+METHOD append
+AT ENTRY
+# set flag to only run this rule once.
+IF TRUE
+DO
+   Thread.sleep(1000)
+ENDRULE
