@@ -49,6 +49,7 @@ class TestOptimiseStreams(Tester):
         self._assert_everything_repaired()
         self._ensure_in_sync(node1)
 
+    @pytest.mark.resource_intensive
     def test_multidc(self):
         """
         start a 3 node 2dc cluster
@@ -56,6 +57,8 @@ class TestOptimiseStreams(Tester):
         write data
         repair
         make sure that the down node only streams from the local dc.
+
+        times out in circle (is rf = 3:3 too much?), marking as resource intensive
         """
         cluster = self.cluster
         logger.debug('Starting nodes')
