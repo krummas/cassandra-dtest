@@ -340,9 +340,9 @@ class TestNodetool(Tester):
         @expected_result This test invokes nodetool describecluster and matches the output with the expected one
         """
         cluster = self.cluster
-        cluster.populate([2, 3, 1]).start(wait_for_binary_proto=True)
+        cluster.populate([1, 2, 1]).start(wait_for_binary_proto=True)
 
-        node1_dc1, node2_dc1, node1_dc2, node2_dc2, node3_dc2, node1_dc3 = cluster.nodelist()
+        node1_dc1, node1_dc2, node2_dc2, node1_dc3 = cluster.nodelist()
 
         session_dc1 = self.patient_cql_connection(node1_dc1)
         session_dc1.execute("create KEYSPACE ks1 WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': 3, 'dc2':5, 'dc3':1}")
@@ -359,14 +359,14 @@ class TestNodetool(Tester):
             assert node1_dc1_sorted == out_sorted
 
         logger.debug(out_node1_dc1)
-        assert 'Live: 6' in out_node1_dc1
+        assert 'Live: 4' in out_node1_dc1
         assert 'Joining: 0' in out_node1_dc1
         assert 'Moving: 0' in out_node1_dc1
         assert 'Leaving: 0' in out_node1_dc1
         assert 'Unreachable: 0' in out_node1_dc1
         assert 'Data Centers:' in out_node1_dc1
-        assert 'dc1 #Nodes: 2 #Down: 0' in out_node1_dc1
-        assert 'dc2 #Nodes: 3 #Down: 0' in out_node1_dc1
+        assert 'dc1 #Nodes: 1 #Down: 0' in out_node1_dc1
+        assert 'dc2 #Nodes: 2 #Down: 0' in out_node1_dc1
         assert 'dc3 #Nodes: 1 #Down: 0' in out_node1_dc1
         assert 'Keyspaces:' in out_node1_dc1
 
