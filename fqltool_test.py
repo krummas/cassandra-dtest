@@ -25,37 +25,39 @@ class TestFQLTool(Tester):
         """
         self.cluster.populate(2).start(wait_for_binary_proto=True)
         node1, node2 = self.cluster.nodelist()
-        tmpdir = tempfile.mkdtemp()
-        tmpdir2 = tempfile.mkdtemp()
-        node1.nodetool("enablefullquerylog --path={}".format(tmpdir))
-        node2.nodetool("enablefullquerylog --path={}".format(tmpdir2))
-        node1.stress(['write', 'n=1000'])
-        node1.flush()
-        node2.flush()
-        node1.nodetool("disablefullquerylog")
-        node2.nodetool("disablefullquerylog")
-        node1.stop(wait_other_notice=True)
-        node2.stop(wait_other_notice=True)
-        for d in node1.data_directories():
-            rmtree(d)
-            os.mkdir(d)
-        for d in node2.data_directories():
-            rmtree(d)
-            os.mkdir(d)
 
-        node1.start(wait_for_binary_proto=True)
-        node2.start(wait_for_binary_proto=True, wait_other_notice=True)
-        # make sure the node is empty:
-        got_exception = False
-        try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tmpdir = tempfile.mkdtemp(dir=temp_dir)
+            tmpdir2 = tempfile.mkdtemp(dir=temp_dir)
+            node1.nodetool("enablefullquerylog --path={}".format(tmpdir))
+            node2.nodetool("enablefullquerylog --path={}".format(tmpdir2))
+            node1.stress(['write', 'n=1000'])
+            node1.flush()
+            node2.flush()
+            node1.nodetool("disablefullquerylog")
+            node2.nodetool("disablefullquerylog")
+            node1.stop(wait_other_notice=True)
+            node2.stop(wait_other_notice=True)
+            for d in node1.data_directories():
+                rmtree(d)
+                os.mkdir(d)
+            for d in node2.data_directories():
+                rmtree(d)
+                os.mkdir(d)
+
+            node1.start(wait_for_binary_proto=True)
+            node2.start(wait_for_binary_proto=True, wait_other_notice=True)
+            # make sure the node is empty:
+            got_exception = False
+            try:
+                node1.stress(['read', 'n=1000'])
+            except Exception:
+                got_exception = True
+            assert got_exception
+            # replay the log files
+            self._run_fqltool_replay(node1, [tmpdir, tmpdir2], "127.0.0.1", None, None)
+            # and verify the data is there
             node1.stress(['read', 'n=1000'])
-        except Exception:
-            got_exception = True
-        assert got_exception
-        # replay the log files
-        self._run_fqltool_replay(node1, [tmpdir, tmpdir2], "127.0.0.1", None, None)
-        # and verify the data is there
-        node1.stress(['read', 'n=1000'])
 
     def test_compare(self):
         """
@@ -65,24 +67,23 @@ class TestFQLTool(Tester):
         """
         self.cluster.populate(1).start(wait_for_binary_proto=True)
         node1 = self.cluster.nodelist()[0]
-        fqldir = tempfile.mkdtemp()
 
-        node1.stress(['write', 'n=1000'])
-        node1.flush()
-        node1.nodetool("enablefullquerylog --path={}".format(fqldir))
-        node1.stress(['read', 'n=1000'])
-        node1.nodetool("disablefullquerylog")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            results1 = tempfile.mkdtemp(dir=temp_dir)
+            queries1 = tempfile.mkdtemp(dir=temp_dir)
+            results2 = tempfile.mkdtemp(dir=temp_dir)
+            queries2 = tempfile.mkdtemp(dir=temp_dir)
+            fqldir = tempfile.mkdtemp(dir=temp_dir)
 
-        results1 = tempfile.mkdtemp()
-        queries1 = tempfile.mkdtemp()
-        self._run_fqltool_replay(node1, [fqldir], "127.0.0.1", queries1, results1)
-
-        results2 = tempfile.mkdtemp()
-        queries2 = tempfile.mkdtemp()
-        self._run_fqltool_replay(node1, [fqldir], "127.0.0.1", queries2, results2)
-
-        output = self._run_fqltool_compare(node1, queries1, [results1, results2])
-        assert b"MISMATCH" not in output  # running the same reads against the same data
+            node1.stress(['write', 'n=1000'])
+            node1.flush()
+            node1.nodetool("enablefullquerylog --path={}".format(fqldir))
+            node1.stress(['read', 'n=1000'])
+            node1.nodetool("disablefullquerylog")
+            self._run_fqltool_replay(node1, [fqldir], "127.0.0.1", queries1, results1)
+            self._run_fqltool_replay(node1, [fqldir], "127.0.0.1", queries2, results2)
+            output = self._run_fqltool_compare(node1, queries1, [results1, results2])
+            assert b"MISMATCH" not in output  # running the same reads against the same data
 
     def test_compare_mismatch(self):
         """
@@ -93,45 +94,47 @@ class TestFQLTool(Tester):
         self.cluster.populate(1).start(wait_for_binary_proto=True)
         node1 = self.cluster.nodelist()[0]
 
-        fqldir1 = tempfile.mkdtemp()
-        node1.nodetool("enablefullquerylog --path={}".format(fqldir1))
-        node1.stress(['write', 'n=1000'])
-        node1.flush()
-        node1.stress(['read', 'n=1000'])
-        node1.nodetool("disablefullquerylog")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fqldir1 = tempfile.mkdtemp(dir=temp_dir)
+            fqldir2 = tempfile.mkdtemp(dir=temp_dir)
+            results1 = tempfile.mkdtemp(dir=temp_dir)
+            queries1 = tempfile.mkdtemp(dir=temp_dir)
+            results2 = tempfile.mkdtemp(dir=temp_dir)
+            queries2 = tempfile.mkdtemp(dir=temp_dir)
 
-        node1.stop()
-        for d in node1.data_directories():
-            rmtree(d)
-            os.mkdir(d)
-        node1.start(wait_for_binary_proto=True)
+            node1.nodetool("enablefullquerylog --path={}".format(fqldir1))
+            node1.stress(['write', 'n=1000'])
+            node1.flush()
+            node1.stress(['read', 'n=1000'])
+            node1.nodetool("disablefullquerylog")
 
-        fqldir2 = tempfile.mkdtemp()
-        node1.nodetool("enablefullquerylog --path={}".format(fqldir2))
-        node1.stress(['write', 'n=1000', '-pop', 'seq=1000..2000'])
-        node1.flush()
-        node1.stress(['read', 'n=1000', '-pop', 'seq=1000..2000'])
-        node1.nodetool("disablefullquerylog")
-        node1.stop()
-        for d in node1.data_directories():
-            rmtree(d)
-            os.mkdir(d)
-        node1.start(wait_for_binary_proto=True)
+            node1.stop()
+            for d in node1.data_directories():
+                rmtree(d)
+                os.mkdir(d)
+            node1.start(wait_for_binary_proto=True)
 
-        results1 = tempfile.mkdtemp()
-        queries1 = tempfile.mkdtemp()
-        self._run_fqltool_replay(node1, [fqldir1], "127.0.0.1", queries1, results1)
-        node1.stop()
-        for d in node1.data_directories():
-            rmtree(d)
-            os.mkdir(d)
-        node1.start(wait_for_binary_proto=True)
-        results2 = tempfile.mkdtemp()
-        queries2 = tempfile.mkdtemp()
-        self._run_fqltool_replay(node1, [fqldir2], "127.0.0.1", queries2, results2)
+            node1.nodetool("enablefullquerylog --path={}".format(fqldir2))
+            node1.stress(['write', 'n=1000', '-pop', 'seq=1000..2000'])
+            node1.flush()
+            node1.stress(['read', 'n=1000', '-pop', 'seq=1000..2000'])
+            node1.nodetool("disablefullquerylog")
+            node1.stop()
+            for d in node1.data_directories():
+                rmtree(d)
+                os.mkdir(d)
+            node1.start(wait_for_binary_proto=True)
 
-        output = self._run_fqltool_compare(node1, queries1, [results1, results2])
-        assert b"MISMATCH" in output  # compares two different stress runs, should mismatch
+            self._run_fqltool_replay(node1, [fqldir1], "127.0.0.1", queries1, results1)
+            node1.stop()
+            for d in node1.data_directories():
+                rmtree(d)
+                os.mkdir(d)
+            node1.start(wait_for_binary_proto=True)
+            self._run_fqltool_replay(node1, [fqldir2], "127.0.0.1", queries2, results2)
+
+            output = self._run_fqltool_compare(node1, queries1, [results1, results2])
+            assert b"MISMATCH" in output  # compares two different stress runs, should mismatch
 
     def _run_fqltool_replay(self, node, logdirs, target, queries, results):
         fqltool = self.fqltool(node)
