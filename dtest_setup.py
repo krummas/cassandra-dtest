@@ -351,27 +351,26 @@ class DTestSetup:
         with log_filter('xyzxyzxyz'):  # quiet noise from driver when nodes start going down
             if self.dtest_config.keep_test_dir:
                 logger.info("xyz1 {}".format(self.dtest_config.enable_jacoco_code_coverage))
-                self.cluster.stop(gently=self.dtest_config.enable_jacoco_code_coverage)
+                try:
+                    self.cluster.stop(gently=self.dtest_config.enable_jacoco_code_coverage)
+                except:
+                    logger.info("Unexpected error: {}".format( sys.exc_info()[0]))
+                    raise
             else:
                 # when recording coverage the jvm has to exit normally
                 # or the coverage information is not written by the jacoco agent
                 # otherwise we can just kill the process
                 if self.dtest_config.enable_jacoco_code_coverage:
-                    logger.info("xyz2")
                     self.cluster.stop(gently=True)
 
                 # Cleanup everything:
                 try:
-                    logger.info("xyz3")
                     if self.log_watch_thread:
-                        logger.info("xyz4")
                         self.stop_active_log_watch()
                 finally:
-                    logger.info("xyz5")
                     logger.info("removing ccm cluster {name} at: {path}".format(name=self.cluster.name,
                                                                           path=self.test_path))
                     self.cluster.remove()
-                    logger.info("xyz6")
                     logger.info("clearing ssl stores from [{0}] directory".format(self.test_path))
                     for filename in ('keystore.jks', 'truststore.jks', 'ccm_node.cer'):
                         try:
@@ -381,9 +380,7 @@ class DTestSetup:
                             assert e.errno == errno.ENOENT
 
                     os.rmdir(self.test_path)
-                    logger.info("xyz7")
                     self.cleanup_last_test_dir()
-                    logger.info("xyz8")
 
     def cleanup_and_replace_cluster(self):
         for con in self.connections:
