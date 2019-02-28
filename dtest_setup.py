@@ -354,6 +354,8 @@ class DTestSetup:
                 try:
                     self.cluster.stop(gently=self.dtest_config.enable_jacoco_code_coverage)
                 except:
+                    for node in self.cluster.nodelist():
+                        logger.info("PID={}".format(node.pid))
                     logger.info("Unexpected error: {}".format( sys.exc_info()[0]))
                     raise
             else:
