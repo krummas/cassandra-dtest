@@ -321,6 +321,9 @@ class TestMaterializedViews(Tester):
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t WHERE v IS NOT NULL "
                          "AND id IS NOT NULL PRIMARY KEY (v, id)"))
 
+        logger.debug("Wait and ensure the MV build has started. Waiting up to 2 minutes.")
+        self._wait_for_view_build_start(session, 'ks', 't_by_v', wait_minutes=2)
+
         logger.debug("wait for view to build")
         self._wait_for_view("ks", "t_by_v")
 
@@ -342,6 +345,9 @@ class TestMaterializedViews(Tester):
 
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t WHERE v IS NOT NULL "
                          "AND id IS NOT NULL PRIMARY KEY (v, id)"))
+
+        logger.debug("Wait and ensure the MV build has started. Waiting up to 2 minutes.")
+        self._wait_for_view_build_start(session, 'ks', 't_by_v', wait_minutes=2)
 
         logger.debug("wait for view to build")
         self._wait_for_view("ks", "t_by_v")
@@ -1181,6 +1187,9 @@ class TestMaterializedViews(Tester):
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t "
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
 
+        logger.debug("Wait and ensure the MV build has started. Waiting up to 2 minutes.")
+        self._wait_for_view_build_start(session, 'ks', 't_by_v', wait_minutes=2)
+
         logger.debug("Verify that the MV has been successfully created")
         self._wait_for_view('ks', 't_by_v')
         assert_one(session, "SELECT COUNT(*) FROM t_by_v", [5000])
@@ -1239,6 +1248,9 @@ class TestMaterializedViews(Tester):
         logger.debug("Create the MV again")
         session.execute(("CREATE MATERIALIZED VIEW t_by_v AS SELECT * FROM t "
                          "WHERE v IS NOT NULL AND id IS NOT NULL PRIMARY KEY (v, id)"))
+
+        logger.debug("Wait and ensure the MV build has started. Waiting up to 2 minutes.")
+        self._wait_for_view_build_start(session, 'ks', 't_by_v', wait_minutes=2)
 
         logger.debug("Verify that the MV has been successfully created")
         self._wait_for_view('ks', 't_by_v')
