@@ -1130,4 +1130,5 @@ class TestIncRepair(Tester):
         if jmx.has_mbean(bean):
             return jmx.read_attribute(bean, 'Count')
         else:
+            logger.error("No mbean, {}".format(bean))
             return 0
