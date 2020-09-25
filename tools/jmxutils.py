@@ -256,6 +256,7 @@ class JolokiaAgent(object):
         if path:
             body['path'] = path
         response = self._query(body, verbose=verbose)
+        logger.info("XYZ {} {} got response: {}".format(mbean, attribute, response))
         return response['value']
 
     def write_attribute(self, mbean, attribute, value, path=None, verbose=True):
