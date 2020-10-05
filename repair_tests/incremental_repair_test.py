@@ -1044,7 +1044,9 @@ class TestIncRepair(Tester):
             self.assertNoRepairedSSTables(node, 'ks')
 
         # stop node 2 and mark its sstables repaired
+        logger.info("xxx stopping node2");
         node2.stop(wait_other_notice=True)
+        logger.info("yyy stopped node2")
         node2.run_sstablerepairedset(keyspace='ks')
         # before restarting node2 overwrite some data on node1 to trigger digest mismatches
         session.execute("insert into ks.tbl (k, c, v) values (5, 5, 55)")
