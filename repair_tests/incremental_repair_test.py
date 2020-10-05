@@ -1102,6 +1102,7 @@ class TestIncRepair(Tester):
         res = session.execute(stmt)
         for row in res:
             logger.info("xyz: {}".format(row))
+            print("xyz: {}".format(row))
 
         rr_after = self.get_attribute_count(jmx, rr_count)
         uc_after = self.get_attribute_count(jmx, unconfirmed_count)
