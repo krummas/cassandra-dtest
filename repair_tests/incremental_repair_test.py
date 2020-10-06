@@ -1050,8 +1050,9 @@ class TestIncRepair(Tester):
         node2.run_sstablerepairedset(keyspace='ks')
         # before restarting node2 overwrite some data on node1 to trigger digest mismatches
         session.execute("insert into ks.tbl (k, c, v) values (5, 5, 55)")
+        logger.info("xxx starting node2")
         node2.start(wait_for_binary_proto=True)
-
+        logger.info("yyy started node2")
         out1 = node1.run_sstablemetadata(keyspace='ks').stdout
         out2 = node2.run_sstablemetadata(keyspace='ks').stdout
 
